@@ -60,6 +60,7 @@ func (c *conn) serve() {
 		}
 	} else {
 		// if not https, should sent the request header to remote
+		// 在应用层解析到的请求头需要通过remoteConn发往目标服务器
 		_, err = rawHttpRequestHeader.WriteTo(remoteConn)
 		if err != nil {
 			connLogger.Error(err)
