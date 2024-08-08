@@ -21,7 +21,7 @@ type conn struct {
 	server *Server
 }
 
-// serve tunnel the client connection to remote host
+// serve tunnel the client connection to remote host. 核心代理逻辑
 func (c *conn) serve() {
 	defer c.rwc.Close()
 	rawHttpRequestHeader, remote, credential, isHttps, err := c.getTunnelInfo()
@@ -30,7 +30,7 @@ func (c *conn) serve() {
 		return
 	}
 
-	if c.auth(credential) == false {
+	if !c.auth(credential) {
 		connLogger.Error("Auth fail: " + credential)
 		return
 	}
@@ -93,6 +93,7 @@ func (c *conn) getTunnelInfo() (rawReqHeader bytes.Buffer, host, credential stri
 	if method == "CONNECT" {
 		isHttps = true
 		requestURI = "http://" + requestURI
+		// note that a CONNECT Request has no body
 	}
 
 	// get remote host
@@ -112,7 +113,7 @@ func (c *conn) getTunnelInfo() (rawReqHeader bytes.Buffer, host, credential stri
 	if uriInfo.Host == "" {
 		host = mimeHeader.Get("Host")
 	} else {
-		if strings.Index(uriInfo.Host, ":") == -1 {
+		if !strings.Contains(uriInfo.Host, ":") {
 			host = uriInfo.Host + ":80"
 		} else {
 			host = uriInfo.Host
@@ -132,7 +133,7 @@ func (c *conn) getTunnelInfo() (rawReqHeader bytes.Buffer, host, credential stri
 
 // auth provide basic authentication
 func (c *conn) auth(credential string) bool {
-	if c.server.isAuth() == false || c.server.validateCredential(credential) {
+	if !c.server.isAuth() || c.server.validateCredential(credential) {
 		return true
 	}
 	// 407
@@ -153,6 +154,12 @@ func (c *conn) tunnel(remoteConn net.Conn) {
 		}()
 	}
 	go func() {
+		// `c.brc` 是一个 `bufio.Reader`，它从 `c.rwc` 读取数据。
+		// `rawHttpRequestHeader` 在 `getTunnelInfo`方法中已经被读取
+
+		// here tunnel the TCP connection to the desired destination, the proxy works at the transport layer
+		// - 如果是代理非https请求，在`serve`方法中`rawHttpRequestHeader`已经被发送到 `remoteConn`，此时`c.brc` 中的数据是 HTTP 请求的 body 部分，然后在这里被发送到 `remoteConn`
+		// - 如果是代理https请求，直接转发tcp stream
 		_, err := c.brc.WriteTo(remoteConn)
 		if err != nil {
 			connLogger.Warning(err)

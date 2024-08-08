@@ -22,8 +22,8 @@ var servLogger = logging.MustGetLogger("Server")
 type Server struct {
 	listener          net.Listener
 	addr              string
-	exposeMetricsAddr string
-	credentials       []string
+	exposeMetricsAddr string   // prometheus监控指标的暴露地址，如":9090"
+	credentials       []string // basic auth的用户名密码
 	blackDomains      []string
 
 	activeConnMetrics prometheus.Gauge
@@ -45,17 +45,22 @@ func NewServer(addr, exposeMetricsAddr string, credentials []string, genCredenti
 
 // Start a proxy server
 func (s *Server) Start() {
+	// 如果 `exposeMetricsAddr` 不为空，则设置 Prometheus 监控
 	if s.exposeMetricsAddr != "" {
+		// 创建一个新的 Prometheus 注册表
 		reg := prometheus.NewRegistry()
+		// 注册 Go 运行时指标收集器
 		reg.MustRegister(collectors.NewGoCollector(
 			collectors.WithGoCollectorRuntimeMetrics(collectors.GoRuntimeMetricsRule{Matcher: regexp.MustCompile("/.*")}),
 		))
+		// 定义并注册一个新的 Gauge 类型的指标，用于记录活动连接数
 		s.activeConnMetrics = prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: "gsproxy",
 			Subsystem: "server",
 			Name:      "active_connection",
 		})
 		reg.MustRegister(s.activeConnMetrics)
+		// 启动一个旁路的 HTTP 服务，用于暴露 Prometheus 监控指标
 		go func() {
 			// Expose the registered metrics via HTTP.
 			http.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
